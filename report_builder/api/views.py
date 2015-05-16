@@ -3,6 +3,7 @@ from django.shortcuts import get_object_or_404
 from rest_framework import viewsets
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from rest_framework.permissions import IsAdminUser
 from .serializers import (
     ReportNestedSerializer, ReportSerializer, FormatSerializer,
     FilterFieldSerializer)
@@ -14,6 +15,7 @@ import copy
 class FormatViewSet(viewsets.ModelViewSet):
     queryset = Format.objects.all()
     serializer_class = FormatSerializer
+    pagination_class = None
 
 
 class FilterFieldViewSet(viewsets.ModelViewSet):
@@ -24,11 +26,13 @@ class FilterFieldViewSet(viewsets.ModelViewSet):
 class ReportViewSet(viewsets.ModelViewSet):
     queryset = Report.objects.all()
     serializer_class = ReportSerializer
+    pagination_class = None
 
 
 class ReportNestedViewSet(viewsets.ModelViewSet):
     queryset = Report.objects.all()
     serializer_class = ReportNestedSerializer
+    pagination_class = None
 
     def perform_create(self, serializer):
         serializer.save(user_created=self.request.user)
@@ -40,6 +44,7 @@ class ReportNestedViewSet(viewsets.ModelViewSet):
 class RelatedFieldsView(GetFieldsMixin, APIView):
     """ Get related fields from an ORM model
     """
+    permission_classes = (IsAdminUser,)
     def get_data_from_request(self, request):
         self.model = request.DATA['model']
         self.path = request.DATA['path']
@@ -72,6 +77,7 @@ class RelatedFieldsView(GetFieldsMixin, APIView):
 class FieldsView(RelatedFieldsView):
     """ Get direct fields and properties on an ORM model
     """
+    permission_classes = (IsAdminUser,)
     def post(self, request):
         self.get_data_from_request(request)
         field_data = self.get_fields(
@@ -151,6 +157,7 @@ class FieldsView(RelatedFieldsView):
 
 
 class GenerateReport(DataExportMixin, APIView):
+    permission_classes = (IsAdminUser,)
     def get(self, request, report_id=None):
         return self.post(request, report_id=report_id)
 
