@@ -305,14 +305,26 @@ class Format(models.Model):
         return self.name
 
 
-class DisplayField(models.Model):
-    """ A display field to show in a report. Always belongs to a Report
-    """
+class AbstractField(models.Model):
     report = models.ForeignKey(Report)
     path = models.CharField(max_length=2000, blank=True)
     path_verbose = models.CharField(max_length=2000, blank=True)
     field = models.CharField(max_length=2000)
     field_verbose = models.CharField(max_length=2000)
+    position = models.PositiveSmallIntegerField(blank=True, null=True)
+
+    class Meta:
+        abstract = True
+        ordering = ['position']
+
+    @property
+    def field_type(self):
+        return self.report.get_field_type(self.field, self.path)
+
+
+class DisplayField(AbstractField):
+    """ A display field to show in a report. Always belongs to a Report
+    """
     name = models.CharField(max_length=2000)
     sort = models.IntegerField(blank=True, null=True)
     sort_reverse = models.BooleanField(verbose_name="Reverse", default=False)
@@ -328,13 +340,9 @@ class DisplayField(models.Model):
         ),
         blank = True
     )
-    position = models.PositiveSmallIntegerField(blank=True, null=True)
     total = models.BooleanField(default=False)
     group = models.BooleanField(default=False)
     display_format = models.ForeignKey(Format, blank=True, null=True)
-
-    class Meta:
-        ordering = ['position']
 
     def get_choices(self, model, field_name):
         try:
@@ -343,10 +351,6 @@ class DisplayField(models.Model):
             model_field = None
         if model_field and model_field.choices:
             return ((model_field.get_prep_value(key), val) for key, val in model_field.choices)
-
-    @property
-    def field_type(self):
-        return self.report.get_field_type(self.field, self.path)
 
     @property
     def choices_dict(self):
@@ -373,14 +377,9 @@ class DisplayField(models.Model):
         return self.name
 
 
-class FilterField(models.Model):
+class FilterField(AbstractField):
     """ A display field to show in a report. Always belongs to a Report
     """
-    report = models.ForeignKey(Report)
-    path = models.CharField(max_length=2000, blank=True)
-    path_verbose = models.CharField(max_length=2000, blank=True)
-    field = models.CharField(max_length=2000)
-    field_verbose = models.CharField(max_length=2000)
     filter_type = models.CharField(
         max_length=20,
         choices=(
@@ -409,10 +408,6 @@ class FilterField(models.Model):
     filter_value = models.CharField(max_length=2000)
     filter_value2 = models.CharField(max_length=2000, blank=True)
     exclude = models.BooleanField(default=False)
-    position = models.PositiveSmallIntegerField(blank=True, null=True)
-
-    class Meta:
-        ordering = ['position']
 
     def clean(self):
         if self.filter_type == "range":
@@ -507,11 +502,6 @@ class FilterField(models.Model):
             model = get_model_from_path_string(
                 self.report.root_model.model_class(), self.path)
             return self.get_choices(model, self.field)
-
-    @property
-    def field_key(self):
-        """ This key can be passed to a Django ORM values_list """
-        return self.path + self.field
 
     def __unicode__(self):
         return self.field
