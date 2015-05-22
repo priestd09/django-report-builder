@@ -19,6 +19,14 @@ import re
 AUTH_USER_MODEL = getattr(settings, 'AUTH_USER_MODEL', 'auth.User')
 
 
+def get_allowed_models():
+    models = ContentType.objects.all()
+    if getattr(settings, 'REPORT_BUILDER_INCLUDE', False):
+        models = models.filter(model__in=settings.REPORT_BUILDER_INCLUDE)
+    if getattr(settings, 'REPORT_BUILDER_EXCLUDE', False):
+        models = models.exclude(model__in=settings.REPORT_BUILDER_EXCLUDE)
+    return models
+
 class Report(models.Model):
     """ A saved report with queryset and descriptive fields
     """
@@ -31,19 +39,14 @@ class Report(models.Model):
         return model_manager
 
     @staticmethod
-    def _get_allowed_models():
-        models = ContentType.objects.all()
-        if getattr(settings, 'REPORT_BUILDER_INCLUDE', False):
-            models = models.filter(model__in=settings.REPORT_BUILDER_INCLUDE)
-        if getattr(settings, 'REPORT_BUILDER_EXCLUDE', False):
-            models = models.exclude(model__in=settings.REPORT_BUILDER_EXCLUDE)
-        return models
+    def allowed_models():
+        return get_allowed_models()
 
     name = models.CharField(max_length=255)
     slug = models.SlugField(verbose_name="Short Name")
     description = models.TextField(blank=True)
     root_model = models.ForeignKey(
-        ContentType, limit_choices_to={'pk__in': _get_allowed_models})
+        ContentType, limit_choices_to={'pk__in': get_allowed_models})
     created = models.DateField(auto_now_add=True)
     modified = models.DateField(auto_now=True)
     user_created = models.ForeignKey(
@@ -147,10 +150,10 @@ class Report(models.Model):
             if filter_field_type == "Property":
                 property_filters += [field]
 
-        values_list = queryset.values_list(*display_field_paths)
+        values_list = list(queryset.values_list(*display_field_paths))
 
         if not display_field_properties:
-            return values_list[1:]
+            return [x[1:] for x in values_list]
 
         data_list = []
         values_index = 0
@@ -304,7 +307,6 @@ class Format(models.Model):
     def __unicode__(self):
         return self.name
 
-
 class AbstractField(models.Model):
     report = models.ForeignKey(Report)
     path = models.CharField(max_length=2000, blank=True)
@@ -320,6 +322,18 @@ class AbstractField(models.Model):
     @property
     def field_type(self):
         return self.report.get_field_type(self.field, self.path)
+
+    @property
+    def choices(self):
+        if self.pk:
+            model = get_model_from_path_string(
+                self.report.root_model.model_class(), self.path)
+            return self.get_choices(model, self.field)
+
+    @property
+    def field_key(self):
+        """ This key can be passed to a Django ORM values_list """
+        return self.path + self.field
 
 
 class DisplayField(AbstractField):
@@ -360,18 +374,6 @@ class DisplayField(AbstractField):
             for choice in choices:
                 choices_dict.update({choice[0]: choice[1]})
         return choices_dict
-
-    @property
-    def choices(self):
-        if self.pk:
-            model = get_model_from_path_string(
-                self.report.root_model.model_class(), self.path)
-            return self.get_choices(model, self.field)
-
-    @property
-    def field_key(self):
-        """ This key can be passed to a Django ORM values_list """
-        return self.path + self.field
 
     def __unicode__(self):
         return self.name
@@ -491,17 +493,6 @@ class FilterField(AbstractField):
         if filter_field.exclude:
             return not filtered
         return filtered
-
-    @property
-    def field_type(self):
-        return self.report.get_field_type(self.field, self.path)
-
-    @property
-    def choices(self):
-        if self.pk:
-            model = get_model_from_path_string(
-                self.report.root_model.model_class(), self.path)
-            return self.get_choices(model, self.field)
 
     def __unicode__(self):
         return self.field
