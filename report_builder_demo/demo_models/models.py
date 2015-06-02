@@ -18,6 +18,7 @@ class FooExclude(Foo):
 class Bar(CustomFieldModel, models.Model):
     char_field = models.CharField(max_length=50, blank=True)
     foos = models.ManyToManyField(Foo, blank=True)
+    date_field = models.DateField(blank=True, null=True)
 
     @property
     def i_want_char_field(self):

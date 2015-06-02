@@ -58,7 +58,7 @@ class ReportNestedSerializer(ReportSerializer):
     class Meta:
         model = Report
         fields = (
-            'id', 'name', 'modified', 'root_model', 'root_model_name',
+            'id', 'name', 'description', 'modified', 'root_model', 'root_model_name',
             'displayfield_set', 'distinct', 'user_created', 'user_modified',
             'filterfield_set', 'report_file', 'report_file_creation')
         read_only_fields = ('report_file', 'report_file_creation')
@@ -79,6 +79,7 @@ class ReportNestedSerializer(ReportSerializer):
 
         with transaction.atomic():
             instance.name = validated_data.get('name', instance.name)
+            instance.description = validated_data.get('description', instance.description)
             instance.distinct = validated_data.get(
                 'distinct', instance.distinct)
             instance.modified = datetime.date.today()

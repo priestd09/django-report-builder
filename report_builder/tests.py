@@ -2,13 +2,14 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.urlresolvers import reverse
 from django.test import TestCase
 from .models import Report, DisplayField, FilterField
-from report_builder_demo.demo_models.models import Bar
+from report_builder_demo.demo_models.models import Bar, Foo, Restaurant, Waiter
 from django.conf import settings
 from report_utils.model_introspection import (
     get_properties_from_model, get_direct_fields_from_model,
-    get_relation_fields_from_model)
+    get_relation_fields_from_model, get_model_from_path_string)
 from rest_framework.test import APIClient
 import time
+import datetime
 
 
 try:
@@ -44,6 +45,10 @@ class UtilityFunctionTests(TestCase):
         self.assertTrue('filterfield' in names)
         self.assertTrue('root_model' in names)
         self.assertEquals(len(names), 6)
+
+    def test_get_model_from_path_string(self):
+        result = get_model_from_path_string(Restaurant, 'waiter__name')
+        self.assertEqual(result, Waiter)
 
     def test_get_direct_fields_from_model(self):
         fields = get_direct_fields_from_model(Report)
@@ -149,6 +154,7 @@ class ReportTests(TestCase):
         ct = ContentType.objects.get(model="bar")
         self.report = Report.objects.create(root_model=ct, name="A")
         self.bar = Bar.objects.create(char_field="wooo")
+        Bar.objects.create(char_field="wooo2")
         self.generate_url = reverse('generate_report', args=[self.report.id])
 
     def test_property_display(self):
@@ -196,6 +202,55 @@ class ReportTests(TestCase):
         filter_field.save()
         response = self.client.get(self.generate_url)
         self.assertNotContains(response, 'lol no')
+
+    def test_sort(self):
+        DisplayField.objects.create(
+            report=self.report,
+            field="id",
+            field_verbose="id",
+            position=0,
+            sort=1,
+            sort_reverse=True,
+        )
+        response = self.client.get(self.generate_url)
+        self.assertEquals(response.data['data'][0][0], 2)
+
+    def test_sort_date(self):
+        Bar.objects.create(
+            char_field="wooo3", date_field=datetime.date(2015, 5, 20))
+        Bar.objects.create(
+            char_field="wooo4", date_field=datetime.date(2019, 5, 20))
+        DisplayField.objects.create(
+            report=self.report,
+            field="date_field",
+            field_verbose="date",
+            position=0,
+            sort=1,
+            sort_reverse=True,
+        )
+        response = self.client.get(self.generate_url)
+        self.assertEquals(response.data['data'][0][0].year, 2019)
+
+    def test_aggregate(self):
+        self.bar.foos.add(Foo.objects.create(char_field="wooo3"))
+        self.bar.foos.add(Foo.objects.create(char_field="wooo4"))
+        DisplayField.objects.create(
+            report=self.report,
+            field="id",
+            field_verbose="id count",
+            position=0,
+        )
+        DisplayField.objects.create(
+            report=self.report,
+            field="id",
+            field_verbose="id count",
+            position=1,
+            aggregate="Count",
+            path="foos__",
+        )
+        response = self.client.get(self.generate_url)
+        # Aggregate should make it 2 instead of 3 rows
+        self.assertEquals(len(response.data['data']), 2)
 
     def make_lots_of_foos(self):
         for x in range(500):

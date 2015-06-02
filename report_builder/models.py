@@ -9,6 +9,7 @@ from django.db.models import Avg, Min, Max, Count, Sum
 from django.db.models.fields import FieldDoesNotExist
 from report_builder.unique_slugify import unique_slugify
 from report_utils.model_introspection import get_model_from_path_string
+from .utils import sort_data
 from dateutil import parser
 from decimal import Decimal
 from functools import reduce
@@ -142,7 +143,12 @@ class Report(models.Model):
                 insert_property_indexes.append(i)
             else:
                 i += 1
-                display_field_paths += [display_field.field_key]
+                if display_field.aggregate:
+                    display_field_paths += [
+                        display_field.field_key + \
+                        '__' + display_field.aggregate.lower()]
+                else:
+                    display_field_paths += [display_field.field_key]
 
         property_filters = []
         for filter_field in self.filterfield_set.all():
@@ -151,9 +157,6 @@ class Report(models.Model):
                 property_filters += [field]
 
         values_list = list(queryset.values_list(*display_field_paths))
-
-        if not display_field_properties:
-            return [x[1:] for x in values_list]
 
         data_list = []
         values_index = 0
@@ -184,6 +187,11 @@ class Report(models.Model):
                     value_row = values_list[values_index]
                 except IndexError:
                     break
+
+        for display_field in display_fields.filter(
+            sort__gt=0
+        ).order_by('sort'):
+            data_list = sort_data(data_list, display_field)
 
         return data_list
 
@@ -415,7 +423,7 @@ class FilterField(AbstractField):
         if self.filter_type == "range":
             if self.filter_value2 in [None, ""]:
                 raise ValidationError('Range filters must have two values')
-        if self.field_type == "DateField":
+        if self.field_type == "DateField" and self.filter_type != "isnull":
             date_form = forms.DateField()
             date_value = parser.parse(self.filter_value).date()
             date_form.clean(date_value)
