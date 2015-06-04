@@ -2,7 +2,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.urlresolvers import reverse
 from django.test import TestCase
 from .models import Report, DisplayField, FilterField
-from report_builder_demo.demo_models.models import Bar, Foo, Restaurant, Waiter
+from report_builder_demo.demo_models.models import Bar, Place, Foo, Restaurant, Waiter
 from django.conf import settings
 from report_utils.model_introspection import (
     get_properties_from_model, get_direct_fields_from_model,
@@ -10,6 +10,7 @@ from report_utils.model_introspection import (
 from rest_framework.test import APIClient
 import time
 import datetime
+import unittest
 
 
 try:
@@ -203,6 +204,35 @@ class ReportTests(TestCase):
         response = self.client.get(self.generate_url)
         self.assertNotContains(response, 'lol no')
 
+    @unittest.skip("Custom field not yet implimented")
+    def test_filter_custom_field(self):
+        from custom_field.models import CustomField
+        ct = ContentType.objects.get(model="bar")
+        CustomField.objects.create(
+            name="custom one",
+            content_type=ct,
+            field_type="t",
+        )
+        self.bar.set_custom_value('custom one', 'I am custom')
+        DisplayField.objects.create(
+            report=self.report,
+            field="custom one",
+            field_verbose="stuff",
+        )
+        filter_field = FilterField.objects.create(
+            report=self.report,
+            field="custom one",
+            field_verbose="stuff",
+            filter_type='contains',
+            filter_value='I am custom',
+        )
+        response = self.client.get(self.generate_url)
+        self.assertContains(response, 'I am custom')
+        filter_field.filter_value = 'It does not contain this'
+        filter_field.save()
+        response = self.client.get(self.generate_url)
+        self.assertNotContains(response, 'I am custom')
+
     def test_sort(self):
         DisplayField.objects.create(
             report=self.report,
@@ -251,6 +281,7 @@ class ReportTests(TestCase):
         response = self.client.get(self.generate_url)
         # Aggregate should make it 2 instead of 3 rows
         self.assertEquals(len(response.data['data']), 2)
+
 
     def make_lots_of_foos(self):
         for x in range(500):
@@ -305,6 +336,63 @@ class ReportTests(TestCase):
         print('report builder report time is {}'.format(run_time))
         self.assertEqual(response.status_code, 200)
         self.assertLess(run_time, 1.0)
+
+    def make_tiny_town(self):
+        data = [
+            ('Golden Gate Bridge', '123 Bridge St, SF, CA', True, True, 4),
+            ('Alcatraz Island', '0 Dead Mans Row, SF Bay, CA', True, False, 2),
+            ("Fisherman's Warf", 'Pier 39, San Francisco, CA', False, True, 3),
+            ('AT&T Park', '3 World Series Way, SF, CA', False, False, 5),
+            ('MOMA', '456 Art Avenue, San Francisco, CA', True, True, 8),
+        ]
+
+        total = 0
+
+        for row in data:
+            place = Place.objects.create(name=row[0], address=row[1])
+            restaurant = Restaurant.objects.create(
+                place=place, serves_hot_dogs=row[2], serves_pizza=row[3]
+            )
+
+            for count in range(row[4]):
+                days = None if not (total % 3 | total % 2) else total % 3
+
+                waiter = Waiter.objects.create(
+                    restaurant=restaurant,
+                    name=str(total),
+                    days_worked=days,
+                )
+
+                total += 1
+
+    def test_total_accounting(self):
+        """ Test accounting total fields.
+        Nullable fields should be totalled as 0.
+        """
+        self.make_tiny_town()
+
+        model = ContentType.objects.get(model='waiter')
+        report = Report.objects.create(root_model=model, name='Waiter Days Worked')
+
+        DisplayField.objects.create(
+            report=report,
+            field='name',
+            field_verbose='name_verbose',
+            total=True,
+            position=0,
+        )
+        DisplayField.objects.create(
+            report=report,
+            field='days_worked',
+            field_verbose='days_worked_verbose',
+            total=True,
+            position=1,
+        )
+
+        generate_url = reverse('generate_report', args=[report.id])
+        response = self.client.get(generate_url)
+
+        self.assertContains(response, '["TOTALS",""],[22.0,21.0]')
 
     def test_admin(self):
         response = self.client.get('/admin/report_builder/report/')

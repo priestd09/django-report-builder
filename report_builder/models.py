@@ -9,7 +9,7 @@ from django.db.models import Avg, Min, Max, Count, Sum
 from django.db.models.fields import FieldDoesNotExist
 from report_builder.unique_slugify import unique_slugify
 from report_utils.model_introspection import get_model_from_path_string
-from .utils import sort_data
+from .utils import sort_data, increment_total
 from dateutil import parser
 from decimal import Decimal
 from functools import reduce
@@ -134,9 +134,13 @@ class Report(models.Model):
         # Need the pk for inserting properties later
         display_field_paths = ['pk']
         display_field_properties = []
+        display_totals = []
         insert_property_indexes = []
         i = 0
         for display_field in display_fields:
+            if display_field.total:
+                display_field.total_count = Decimal(0.0)
+                display_totals.append(display_field)
             display_field_type = display_field.field_type
             if display_field_type == "Property":
                 display_field_properties.append(display_field.field_key)
@@ -145,7 +149,7 @@ class Report(models.Model):
                 i += 1
                 if display_field.aggregate:
                     display_field_paths += [
-                        display_field.field_key + \
+                        display_field.field_key +
                         '__' + display_field.aggregate.lower()]
                 else:
                     display_field_paths += [display_field.field_key]
@@ -182,6 +186,8 @@ class Report(models.Model):
 
                 if add_row is True:
                     data_list.append(data_row)
+                    for total in display_totals:
+                        increment_total(total, data_row)
                 values_index += 1
                 try:
                     value_row = values_list[values_index]
@@ -192,6 +198,20 @@ class Report(models.Model):
             sort__gt=0
         ).order_by('sort'):
             data_list = sort_data(data_list, display_field)
+
+        if display_totals:
+            display_totals_row = []
+            i = 0
+            for display_field in display_totals:
+                while i < display_field.position:
+                    i += 1
+                    display_totals_row.append('')
+                i += 1
+                display_totals_row.append(display_field.total_count)
+
+            data_list += [
+                ['TOTALS'] + (len(display_fields) - 1) * ['']
+            ] + [display_totals_row]
 
         return data_list
 
